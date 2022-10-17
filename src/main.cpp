@@ -35,11 +35,29 @@ bool check_basis(
   return result;
 }
 
+/* get new objective function */
+vec_ZZ get_objfun(
+  const mat_ZZ &Q,
+  const vec_ZZ &a
+)
+{
+  int n = a.length();
+
+  vec_ZZ c;
+  c.SetLength(n-1);
+
+  for (int i=0; i<n-1; i++)
+    c[i] = a[0]*Q[0][i];
+
+  return c;
+}
+
 /* lattice reduction */
 void reduce_ahl(
   const vec_ZZ  &a,
   mat_ZZ        &Q,
-  vec_ZZ        &x0
+  vec_ZZ        &x0,
+  vec_ZZ        &c
 )
 {
   mat_ZZ L, U;
@@ -85,82 +103,82 @@ void reduce_ahl(
   /* check basis */
   assert(check_basis(a, Q));
 
+  /* get shift vector */
   x0.SetLength(n);
   for (int i=0; i<n; i++) x0[i] = L[n-1][i];
 
+  /* get new objective function */
+  c = get_objfun(Q, a);
+
 }
 
-vec_ZZ get_objfun(
+GRBModel* create_model(
   const mat_ZZ &Q,
+  const vec_ZZ &c,
+  vector<GRBConstr> &conss
+)
+{
+  int nvars = Q.NumCols();
+
+  GRBEnv env = GRBEnv();
+  vector<GRBVar> vars;
+
+  /* disable console output */
+  env.set(GRB_IntParam_OutputFlag, 0);
+
+  /* create model */
+  GRBModel* model = new GRBModel(env);
+
+  /* create variables */
+  for (int j=0; j<nvars; j++)
+  {
+    double obj = conv<double>(c[j]);
+    vars.push_back( model->addVar(-1e20, 1e20, obj, 'I', "Lamb"+itos(j+1)) );
+  }
+
+  /* create constraints */
+  for (int i=0; i<nvars+1; i++)
+  {
+      GRBLinExpr expr = 0;
+      for (int j=0; j<nvars; j++)
+      {
+          double coeff = -conv<double>(Q[i][j]);
+          if (coeff != 0) expr += coeff * vars[j];
+      }
+      conss.push_back( model->addConstr(expr, '<', 0.0, "CX_"+itos(i+1)) );
+  }
+
+  return model;
+}
+
+double Solve(
+  GRBModel* model,
+  vector<GRBConstr> &conss,
   const vec_ZZ &xl,
   const vec_ZZ &a
 )
 {
-  int n = a.length();
-
-  vec_ZZ c;
-  c.SetLength(n);
-
-  for (int i=0; i<n-1; i++)
-    c[i] = a[0]*Q[0][i];
-
-  c[n-1] = to_ZZ(0);
-  for (int j=1; j<n; j++) 
-    c[n-1] += xl[j]*a[j];
-
-  return c;
-}
-
-
-double Solve(
-  const mat_ZZ &Q,
-  const vec_ZZ &xl,
-  const vec_ZZ &c
-)
-{
-    int nvars = Q.NumCols();
-
-    GRBEnv env = GRBEnv();
-    vector<GRBVar> vars;
-
-    /* disable console output */
-    env.set(GRB_IntParam_OutputFlag, 0);
-
-    /* create model */
-    GRBModel* model = new GRBModel(env);
-
-    /* create variables */
-    for (int j=0; j<nvars; j++)
-    {
-      double obj = conv<double>(c[j]);
-      vars.push_back( model->addVar(-1e20, 1e20, obj, 'I', "Lamb"+itos(j+1)) );
-    }
-
-    /* create constraints */
-    for (int i=0; i<nvars+1; i++)
-    {
-        GRBLinExpr expr = 0;
-        for (int j=0; j<nvars; j++)
-        {
-            double coeff = -conv<double>(Q[i][j]);
-            if (coeff != 0) expr += coeff * vars[j];
-        }
-        double rhs = conv<double>(xl[i]);
-        model->addConstr(expr, '<', rhs, "CX_"+itos(i+1));
-    }
+  /* change constraint rhs */
+  for (int i=0; i<conss.size(); i++)
+    conss[i].set(GRB_DoubleAttr_RHS, conv<double>(xl[i]));
     
-    /* solve */
-    model->optimize();
+  /* solve */
+  model->optimize();
 
-    /* get status */
-    int status = model->get(GRB_IntAttr_Status);
-    assert(status == 2); // solution should be optimal
+  /* get status */
+  int status = model->get(GRB_IntAttr_Status);
+  assert(status == 2); // solution should be optimal
 
-    /* get solution */
-    double bestsol = model->get(GRB_DoubleAttr_ObjVal);
-    bestsol += conv<double>(c[nvars]);
+  /* get solution */
+  double bestsol = model->get(GRB_DoubleAttr_ObjVal);
 
-    return bestsol;
+  /* add objective offset */
+  ZZ offset = to_ZZ(0);
+  for (int j=1; j<a.length(); j++) 
+    offset += xl[j]*a[j];
+  bestsol += conv<double>(offset);
+
+  return bestsol;
 
 }
 
@@ -188,25 +206,28 @@ int main(
     a[4] = to_ZZ(85569);
 
     /* get reduced basis for the problem */
-    mat_ZZ Q; vec_ZZ x0;
-    reduce_ahl(a, Q, x0);
+    mat_ZZ Q; vec_ZZ x0; vec_ZZ c;
+    reduce_ahl(a, Q, x0, c);
+
+    /* create gurobi model */
+    vector<GRBConstr> conss;
+    GRBModel* model = create_model(Q, c, conss);
     
     ZZ z_star = to_ZZ(0);
     for(ZZ l = to_ZZ(1); l < a[0] ; l++)
     {
       vec_ZZ xl = x0*l;
 
-      /* get new objective function */
-      vec_ZZ cl = get_objfun(Q, xl, a);
-
       /* solve problem */
-      double z = Solve(Q, xl, cl);
-      if (to_ZZ(z) > z_star)
-      {
-        z_star = z;
-      }
+      double z = Solve(model, conss, xl, a);
 
-      cout << z << endl;
+      /* save largest */
+      if (to_ZZ(z) > z_star)
+        z_star = z;
+
+      /* print info */
+      if (l % to_ZZ(100) == to_ZZ(0))
+        cout << "Iteration " << l << ": best z "<< z_star << endl;
 
     }
 
