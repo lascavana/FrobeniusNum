@@ -264,7 +264,7 @@ int main(
 
       /* print info */
       if (l % to_ZZ(100) == to_ZZ(0))
-        cout << "Iteration " << l << ": best z "<< z_star << endl;
+        cout << "Iteration " << l << ": best z "<< z_star - a[0] << endl;
 
     }
 
