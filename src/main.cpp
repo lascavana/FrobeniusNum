@@ -18,6 +18,21 @@ using namespace NTL;
 
 string itos(int i) {stringstream s; s << i; return s.str(); }
 
+namespace path
+{
+  template<class T>
+  T base_name(T const & path, T const & delims = "/")
+  {
+    return path.substr(path.find_last_of(delims) + 1);
+  }
+  template<class T>
+  T remove_extension(T const & filename)
+  {
+    typename T::size_type const p(filename.find_last_of('.'));
+    return p > 0 && p != T::npos ? filename.substr(0, p) : filename;
+  }
+} // namespace path
+
 /* read vector a from file */
 vec_ZZ read_vec(
   const char *filename
@@ -220,6 +235,30 @@ double solve(
 
 }
 
+void write_prob(
+  string        filename,
+  const vec_ZZ  &a,
+  ZZ            F
+)
+{
+  int n = a.length();
+
+  ofstream output_file(filename);
+  output_file << "minimize +1 \n";
+  output_file << "subject to" << "\n";
+  output_file << "C1:";
+
+  for (int j=0; j<n; j++)
+    output_file << " +" << a[j] << " x" << j+1;
+
+  output_file << " = " << F << endl;
+
+  output_file << "Generals " << "\n";
+  for (int j=0; j<n; j++)
+    output_file << " x" << j+1;
+  output_file << endl;
+
+}
 
 int main(
     int                        argc,          /**< number of arguments from the shell */
@@ -250,6 +289,7 @@ int main(
     vector<GRBConstr> conss;
     GRBModel* model = create_model(Q, c, conss);
     
+    /* calculate Frobenius number */
     ZZ z_star = to_ZZ(0);
     for(ZZ l = to_ZZ(1); l < a[0] ; l++)
     {
@@ -267,7 +307,11 @@ int main(
         cout << "Iteration " << l << ": best z "<< z_star - a[0] << endl;
 
     }
-
     ZZ F = z_star - a[0];
     cout << "Frobenius number is " << F << endl;
+
+    /* write into an LP file */
+    string filename {argv[1]};
+    filename = path::remove_extension(filename) + ".lp";
+    write_prob(filename, a, F);
    }
