@@ -1,6 +1,8 @@
 #include <vector>
+#include <string>
 #include <cassert>
 #include <sstream>
+#include <fstream>
 #include <iostream>
 
 // gurobi
@@ -16,6 +18,42 @@ using namespace NTL;
 
 string itos(int i) {stringstream s; s << i; return s.str(); }
 
+/* read vector a from file */
+vec_ZZ read_vec(
+  const char *filename
+)
+{
+  vec_ZZ a; a.SetLength(100000);
+
+  /* open file for reading */
+  ifstream input_file(filename);
+
+  /* read data */
+  if (input_file.is_open())
+  {
+    /* read a vector */
+    ZZ ai; int idx = 0;
+    while (input_file >> ai) {
+      a[idx] = ai;
+      idx++;
+
+      if (idx == 100000)
+      {
+        cerr << "Vector a too long, must have less than 100000 components" << endl;
+        break;
+      }
+    } 
+    input_file.close();
+
+    a.SetLength(idx);
+  }
+  else {cerr << "Unable to open file" << endl;}
+
+  return a;
+}
+
+
+/* check that Q is basis for ker(a) */
 bool check_basis(
   const vec_ZZ &a,
   const mat_ZZ &Q
@@ -151,7 +189,7 @@ GRBModel* create_model(
   return model;
 }
 
-double Solve(
+double solve(
   GRBModel* model,
   vector<GRBConstr> &conss,
   const vec_ZZ &xl,
@@ -198,12 +236,11 @@ int main(
         return 1;
     }
 
+    vec_ZZ aa = read_vec(argv[1]);
+
+
     /* get row */
-    vec_ZZ a;
-    a.SetLength(5);
-    a[0] = to_ZZ(12223); a[1] = to_ZZ(12224);
-    a[2] = to_ZZ(36674); a[3] = to_ZZ(61119);
-    a[4] = to_ZZ(85569);
+    vec_ZZ a = read_vec(argv[1]);
 
     /* get reduced basis for the problem */
     mat_ZZ Q; vec_ZZ x0; vec_ZZ c;
@@ -219,7 +256,7 @@ int main(
       vec_ZZ xl = x0*l;
 
       /* solve problem */
-      double z = Solve(model, conss, xl, a);
+      double z = solve(model, conss, xl, a);
 
       /* save largest */
       if (to_ZZ(z) > z_star)

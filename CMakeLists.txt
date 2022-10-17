@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.3)
-project(ls_reduction)
+project(frobenius)
 
 option(CXX "enable C++ compilation" ON)
 ### c++11 standards
@@ -33,7 +33,7 @@ find_package(GUROBI REQUIRED)
 include_directories(${GUROBI_INCLUDE_DIRS})
 
 
-add_executable(ls_reduction
+add_executable(frobenius
    src/main.cpp)
 
 if(CXX)
