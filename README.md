@@ -1,5 +1,5 @@
 # FrobeniusNum
-Calculates the Frobenius number for a given vector a.
+Calculates the Frobenius number for a given vector a. Based on code by Prof. Karen Aardal
 
 ## Input
 Input file must contain the components $a_i$ of a vector $a$ with $a_i>0$ and $a_i \leq a_{i+1}$ for all $i$.
