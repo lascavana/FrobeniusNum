@@ -105,8 +105,9 @@ vec_ZZ get_objfun(
   return c;
 }
 
-/* lattice reduction */
-void reduce_ahl(
+/* lattice reduction */ 
+bool reduce_ahl(
+  ZZ            l,
   const vec_ZZ  &a,
   mat_ZZ        &Q,
   vec_ZZ        &x0,
@@ -132,7 +133,7 @@ void reduce_ahl(
     L[i][n+1] = a[i]*N2;
   }
   L[0][n+1] = -a[0]*N2;
-  L[n][n+1] = -N2;
+  L[n][n+1] = -l*N2;
 
   /* lattice reduction */
   ZZ determ;
@@ -144,7 +145,7 @@ void reduce_ahl(
        p is the number of linearly independent rows (therefore
        smaller or equal to m). */
   if (L[n-1][n] != N1 && L[n-1][n] != -N1)
-        throw std::runtime_error("ERROR: N1 not found. Instance infeasible");
+        return false;
 
   /* get kernel lattice basis */
   Q.SetDims(n,n-1);
@@ -162,6 +163,8 @@ void reduce_ahl(
 
   /* get new objective function */
   c = get_objfun(Q, a);
+
+  return true;
 
 }
 
@@ -274,25 +277,30 @@ int main(
         std::cout << " No file provided. Please enter a filename. " << std::endl;
         return 1;
     }
-
-    vec_ZZ aa = read_vec(argv[1]);
-
+    
+    mat_ZZ Q; vec_ZZ x0; vec_ZZ c;
+    vector<GRBConstr> conss;
+    GRBModel* model; 
+    bool initialized = false;
 
     /* get row */
     vec_ZZ a = read_vec(argv[1]);
-
-    /* get reduced basis for the problem */
-    mat_ZZ Q; vec_ZZ x0; vec_ZZ c;
-    reduce_ahl(a, Q, x0, c);
-
-    /* create gurobi model */
-    vector<GRBConstr> conss;
-    GRBModel* model = create_model(Q, c, conss);
     
-    /* calculate Frobenius number */
+    /* calculate Frobenius number */  
     ZZ z_star = to_ZZ(0);
     for(ZZ l = to_ZZ(1); l < a[0] ; l++)
     {
+      if (not initialized)
+      {
+        /* get reduced basis for the problem */
+        bool success = reduce_ahl(l, a, Q, x0, c);
+        /* check success */
+        if (not success) continue; // try again with next l
+        initialized = true;
+        /* initialize gurobi model */
+        model = create_model(Q, c, conss);
+      }
+
       vec_ZZ xl = x0*l;
 
       /* solve problem */
