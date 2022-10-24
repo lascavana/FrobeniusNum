@@ -33,6 +33,20 @@ namespace path
   }
 } // namespace path
 
+bool check_gcd(
+  const vec_ZZ &a
+)
+{
+  int n = a.length();
+  ZZ gcd = a[0];
+  for (int j=1; j<n; j++)
+  {
+    gcd = GCD(gcd, a[j]);
+    if (gcd == to_ZZ(1)) return true;
+  }
+  return false;
+}
+
 /* read vector a from file */
 vec_ZZ read_vec(
   const char *filename
@@ -275,11 +289,11 @@ int main(
         return 1;
     }
 
-    vec_ZZ aa = read_vec(argv[1]);
-
-
     /* get row */
     vec_ZZ a = read_vec(argv[1]);
+
+    /* check gcd */
+    assert( check_gcd(a) );
 
     /* get reduced basis for the problem */
     mat_ZZ Q; vec_ZZ x0; vec_ZZ c;
