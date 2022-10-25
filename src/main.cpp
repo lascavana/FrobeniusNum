@@ -114,7 +114,11 @@ vec_ZZ get_objfun(
   c.SetLength(n-1);
 
   for (int i=0; i<n-1; i++)
-    c[i] = a[0]*Q[0][i];
+  {
+    c[i] = to_ZZ(0);
+    for (int j=1; j<n; j++)
+      c[i]+=a[j]*Q[j][i];
+  }
 
   return c;
 }
