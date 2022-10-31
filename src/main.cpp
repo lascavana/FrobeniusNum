@@ -33,19 +33,6 @@ namespace path
   }
 } // namespace path
 
-bool check_gcd(
-  const vec_ZZ &a
-)
-{
-  int n = a.length();
-  ZZ gcd = a[0];
-  for (int j=1; j<n; j++)
-  {
-    gcd = GCD(gcd, a[j]);
-    if (gcd == to_ZZ(1)) return true;
-  }
-  return false;
-}
 
 /* read vector a from file */
 vec_ZZ read_vec(
@@ -81,7 +68,6 @@ vec_ZZ read_vec(
   return a;
 }
 
-
 /* check that Q is basis for ker(a) */
 bool check_basis(
   const vec_ZZ &a,
@@ -96,42 +82,24 @@ bool check_basis(
     ZZ prod = -a[0]*Q[0][i];
     for (int j=1; j<n; j++)
       prod += a[j]*Q[j][i];
-    if (prod != to_ZZ(0)) result = false;
+    if (prod != to_ZZ(0))
+    {
+      result = false; break;
+    }
   }
 
   return result;
 }
 
-/* get new objective function */
-vec_ZZ get_objfun(
-  const mat_ZZ &Q,
-  const vec_ZZ &a
-)
-{
-  int n = a.length();
-
-  vec_ZZ c;
-  c.SetLength(n-1);
-
-  for (int i=0; i<n-1; i++)
-  {
-    c[i] = to_ZZ(0);
-    for (int j=1; j<n; j++)
-      c[i]+=a[j]*Q[j][i];
-  }
-
-  return c;
-}
-
 /* lattice reduction */
 void reduce_ahl(
+  ZZ            l,
   const vec_ZZ  &a,
   mat_ZZ        &Q,
-  vec_ZZ        &x0,
-  vec_ZZ        &c
+  vec_ZZ        &x0
 )
 {
-  mat_ZZ L, U;
+  mat_ZZ L;
   ZZ N1=to_ZZ(10000000);
   ZZ N2=to_ZZ(1000000000);
 
@@ -150,19 +118,15 @@ void reduce_ahl(
     L[i][n+1] = a[i]*N2;
   }
   L[0][n+1] = -a[0]*N2;
-  L[n][n+1] = -N2;
+  L[n][n+1] = -l*N2;
 
   /* lattice reduction */
   ZZ determ;
-  LLL(determ, L, U, 99, 100, 0);
+  LLL(determ, L, 99, 100, 0);
   
-
   /* find N1 in L matrix */
-    /* Note: it should appear in position [n-p][n], where
-       p is the number of linearly independent rows (therefore
-       smaller or equal to m). */
   if (L[n-1][n] != N1 && L[n-1][n] != -N1)
-        throw std::runtime_error("ERROR: N1 not found. Instance infeasible");
+        throw std::runtime_error("ERROR: N1 not found. gcd(a) is not equal to 1!");
 
   /* get kernel lattice basis */
   Q.SetDims(n,n-1);
@@ -178,14 +142,10 @@ void reduce_ahl(
   x0.SetLength(n);
   for (int i=0; i<n; i++) x0[i] = L[n-1][i];
 
-  /* get new objective function */
-  c = get_objfun(Q, a);
-
 }
 
 GRBModel* create_model(
   const mat_ZZ &Q,
-  const vec_ZZ &c,
   vector<GRBConstr> &conss
 )
 {
@@ -203,9 +163,11 @@ GRBModel* create_model(
   /* create variables */
   for (int j=0; j<nvars; j++)
   {
-    double obj = conv<double>(c[j]);
-    vars.push_back( model->addVar(-1e20, 1e20, obj, 'I', "Lamb"+itos(j+1)) );
+    double obj = conv<double>(Q[0][j]);
+    vars.push_back( model->addVar(-GRB_INFINITY, GRB_INFINITY, obj, GRB_INTEGER, "Lamb"+itos(j+1)) );
   }
+  /* NOTE: the obj coefficient of variable j is a[0]*Q[0][j]. For numerical stability
+  purposes, omit a[0] here and multiply it with the final result. **/
 
   /* create constraints */
   for (int i=0; i<nvars+1; i++)
@@ -216,23 +178,26 @@ GRBModel* create_model(
           double coeff = -conv<double>(Q[i][j]);
           if (coeff != 0) expr += coeff * vars[j];
       }
-      conss.push_back( model->addConstr(expr, '<', 0.0, "CX_"+itos(i+1)) );
+      conss.push_back( model->addConstr(expr, GRB_LESS_EQUAL, 0.0, "CX_"+itos(i+1)) );
   }
+
+  /* set tolerance */
+  model->set(GRB_DoubleParam_OptimalityTol, 1e-9);
 
   return model;
 }
 
-double solve(
-  GRBModel* model,
+ZZ solve(
+  GRBModel*         model,
   vector<GRBConstr> &conss,
-  const vec_ZZ &xl,
-  const vec_ZZ &a
+  const vec_ZZ      &xl,
+  const vec_ZZ      &a
 )
 {
   /* change constraint rhs */
   for (int i=0; i<conss.size(); i++)
     conss[i].set(GRB_DoubleAttr_RHS, conv<double>(xl[i]));
-    
+
   /* solve */
   model->optimize();
 
@@ -243,13 +208,16 @@ double solve(
   /* get solution */
   double bestsol = model->get(GRB_DoubleAttr_ObjVal);
 
+  /* objective shift */
+  bestsol *= conv<double>(a[0]);
+
   /* add objective offset */
   ZZ offset = to_ZZ(0);
   for (int j=1; j<a.length(); j++) 
     offset += xl[j]*a[j];
   bestsol += conv<double>(offset);
 
-  return bestsol;
+  return to_ZZ(bestsol);
 
 }
 
@@ -293,31 +261,31 @@ int main(
         return 1;
     }
 
+    ZZ z_star = to_ZZ(0);
+
     /* get row */
     vec_ZZ a = read_vec(argv[1]);
 
-    /* check gcd */
-    assert( check_gcd(a) );
-
-    /* get reduced basis for the problem */
-    mat_ZZ Q; vec_ZZ x0; vec_ZZ c;
-    reduce_ahl(a, Q, x0, c);
+    /* get initial reduced basis */
+    mat_ZZ Q; vec_ZZ x0;
+    reduce_ahl(to_ZZ(1), a, Q, x0);
 
     /* create gurobi model */
     vector<GRBConstr> conss;
-    GRBModel* model = create_model(Q, c, conss);
+    GRBModel* model = create_model(Q, conss);
     
     /* calculate Frobenius number */
-    ZZ z_star = to_ZZ(0);
     for(ZZ l = to_ZZ(1); l < a[0] ; l++)
     {
-      vec_ZZ xl = x0*l;
+      /* recalculate shift vector xl */
+      vec_ZZ xl;
+      reduce_ahl(l, a, Q, xl);
 
       /* solve problem */
-      double z = solve(model, conss, xl, a);
+      ZZ z = solve(model, conss, xl, a);
 
       /* save largest */
-      if (to_ZZ(z) > z_star)
+      if (z > z_star)
         z_star = z;
 
       /* print info */
