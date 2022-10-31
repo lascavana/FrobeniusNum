@@ -3,7 +3,10 @@ project(frobenius)
 
 option(CXX "enable C++ compilation" ON)
 ### c++11 standards
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -std=c++11 -I/usr/local/include")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -std=c++11")
+
+include_directories(/usr/local/include)
+link_directories(/usr/local/lib)
 
 if(CXX)
   enable_language(CXX)
@@ -23,8 +26,9 @@ if(MSVC AND MT)
   set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} /MTd")
 endif()
 
-### NTL ###
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
+### NTL ###
 find_package(GMP REQUIRED)
 find_package(NTL REQUIRED)
 
